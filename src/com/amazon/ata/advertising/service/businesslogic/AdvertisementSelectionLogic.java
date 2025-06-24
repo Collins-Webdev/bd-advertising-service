@@ -21,7 +21,7 @@ import javax.inject.Inject;
  * This class is responsible for picking the advertisement to be rendered.
  */
 public class AdvertisementSelectionLogic {
-    public static final boolean IMPLEMENTED_STREAMS = true; // Ajouté
+    public static final boolean IMPLEMENTED_STREAMS = true;
 
     private static final Logger LOG = LogManager.getLogger(AdvertisementSelectionLogic.class);
 
@@ -73,20 +73,25 @@ public class AdvertisementSelectionLogic {
         RequestContext requestContext = new RequestContext(customerId, marketplaceId);
         TargetingEvaluator evaluator = new TargetingEvaluator(requestContext);
 
-        List<AdvertisementContent> eligibleContents = contents.stream()
-                .filter(content -> {
-                    List<TargetingGroup> targetingGroups = targetingGroupDao.get(content.getContentId());
-                    return targetingGroups.stream()
-                            .anyMatch(group -> evaluator.evaluate(group).isTrue());
-                })
-                .collect(Collectors.toList());
+        // Créer un TreeMap pour trier les annonces par CTR décroissant
+        TreeMap<Double, AdvertisementContent> adsByClickThroughRate = new TreeMap<>(Comparator.reverseOrder());
 
-        if (eligibleContents.isEmpty()) {
+        for (AdvertisementContent content : contents) {
+            List<TargetingGroup> targetingGroups = targetingGroupDao.get(content.getContentId());
+
+            // Trouver le groupe cible éligible avec le CTR le plus élevé
+            targetingGroups.stream()
+                    .filter(group -> evaluator.evaluate(group).isTrue())
+                    .max(Comparator.comparingDouble(TargetingGroup::getClickThroughRate))
+                    .ifPresent(group -> adsByClickThroughRate.put(group.getClickThroughRate(), content));
+        }
+
+        if (adsByClickThroughRate.isEmpty()) {
             return new EmptyGeneratedAdvertisement();
         }
 
-        AdvertisementContent selectedContent = eligibleContents.get(
-                random.nextInt(eligibleContents.size()));
-        return new GeneratedAdvertisement(selectedContent);
+        // Prendre l'annonce avec le CTR le plus élevé (première entrée de la TreeMap)
+        AdvertisementContent bestAd = adsByClickThroughRate.firstEntry().getValue();
+        return new GeneratedAdvertisement(bestAd);
     }
 }
